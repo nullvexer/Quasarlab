@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_nonnegative_float, as_vector
 
@@ -20,8 +21,8 @@ class State:
     """
 
     time: float
-    position: np.ndarray
-    velocity: np.ndarray
+    position: NDArray[np.float64]
+    velocity: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "time", as_nonnegative_float(self.time, "time"))

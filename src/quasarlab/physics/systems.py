@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_vector
 from quasarlab.numerical.state import State
@@ -38,13 +40,14 @@ class ParticleSystem:
                     f"force law {index} must provide a callable force(particle, state)"
                 )
 
-    def net_force(self, state: State) -> np.ndarray:
+    def net_force(self, state: State) -> NDArray[np.float64]:
         """Return the total force on the particle at ``state`` in newtons."""
-        total = np.zeros(2, dtype=float)
+        total: NDArray[Any] = np.zeros(2, dtype=float)
         for law in self.forces:
-            total = total + as_vector(law.force(self.particle, state), "force")
+            force = as_vector(law.force(self.particle, state), "force")
+            total = np.asarray(total + force, dtype=float)
         return total
 
-    def acceleration(self, state: State) -> np.ndarray:
+    def acceleration(self, state: State) -> NDArray[np.float64]:
         """Return the acceleration ``a = F_total / m`` in m/s^2."""
         return self.net_force(state) / self.particle.mass

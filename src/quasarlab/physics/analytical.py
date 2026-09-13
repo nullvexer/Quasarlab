@@ -11,11 +11,12 @@ These are mathematical references used to validate numerical results.
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_vector
 
 
-def _time_array(t: object) -> np.ndarray:
+def _time_array(t: object) -> NDArray[np.float64]:
     """Return ``t`` as a scalar or 1-D finite float array."""
     try:
         array = np.asarray(t, dtype=float)
@@ -30,7 +31,7 @@ def _time_array(t: object) -> np.ndarray:
 
 def position(
     t: object, initial_position: object, initial_velocity: object, acceleration: object
-) -> np.ndarray:
+) -> NDArray[np.float64]:
     """Return the exact position under constant acceleration.
 
     ``t`` may be scalar or 1-D.  The return shape is (2,) for scalar input and
@@ -47,7 +48,7 @@ def position(
     return np.asarray(result, dtype=float)
 
 
-def velocity(t: object, initial_velocity: object, acceleration: object) -> np.ndarray:
+def velocity(t: object, initial_velocity: object, acceleration: object) -> NDArray[np.float64]:
     """Return the exact velocity under constant acceleration.
 
     ``t`` may be scalar or 1-D.  The return shape is (2,) for scalar input and

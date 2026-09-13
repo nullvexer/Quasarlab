@@ -11,13 +11,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from numpy.typing import NDArray
 
 from quasarlab.simulation.world import Trajectory
 
 
 def plot_trajectory(
     trajectory: Trajectory,
-    analytical_positions: np.ndarray | None = None,
+    analytical_positions: NDArray[np.float64] | None = None,
     *,
     save_path: str | Path | None = None,
     show: bool = False,

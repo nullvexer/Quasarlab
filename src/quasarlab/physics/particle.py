@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_positive_float, as_vector
 
@@ -20,8 +21,8 @@ class Particle:
     """
 
     mass: float
-    position: np.ndarray
-    velocity: np.ndarray
+    position: NDArray[np.float64]
+    velocity: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         self.mass = as_positive_float(self.mass, "mass")

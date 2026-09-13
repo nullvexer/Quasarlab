@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_positive_float, as_vector
 from quasarlab.numerical.state import State
@@ -30,10 +31,10 @@ class ForceLaw(Protocol):
     type, the informal contract already documented above.
     """
 
-    def force(self, particle: Particle, state: State) -> np.ndarray: ...
+    def force(self, particle: Particle, state: State) -> NDArray[np.float64]: ...
 
 
-def gravitational_force(mass: float, gravity: np.ndarray) -> np.ndarray:
+def gravitational_force(mass: float, gravity: NDArray[np.float64]) -> NDArray[np.float64]:
     """Return the gravitational force ``m g`` in newtons."""
     mass = as_positive_float(mass, "mass")
     gravity = as_vector(gravity, "gravity")
@@ -48,12 +49,12 @@ class UniformGravity:
     gravity ``(0, -9.81)`` with the +y axis pointing upward.
     """
 
-    g: np.ndarray = field(default_factory=lambda: np.array([0.0, -9.81]))
+    g: NDArray[np.float64] = field(default_factory=lambda: np.array([0.0, -9.81]))
 
     def __post_init__(self) -> None:
         self.g = as_vector(self.g, "g")
 
-    def force(self, particle: Particle, state: State) -> np.ndarray:
+    def force(self, particle: Particle, state: State) -> NDArray[np.float64]:
         """Return the force on ``particle`` in newtons.
 
         ``state`` is unused by uniform gravity but is part of the force-law
@@ -61,6 +62,6 @@ class UniformGravity:
         """
         return gravitational_force(particle.mass, self.g)
 
-    def acceleration(self, particle: Particle, state: State) -> np.ndarray:
+    def acceleration(self, particle: Particle, state: State) -> NDArray[np.float64]:
         """Return the acceleration ``a = g`` in m/s^2."""
         return self.g.copy()

@@ -18,5 +18,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[test,dev]"
       - run: ruff check .
-      - run: mypy src/quasarlab
+      # mypy results depend on the NumPy stubs each interpreter resolves
+      # (NumPy < 2.5 stubs are not clean under mypy 2.x), so the type check
+      # runs once on the newest leg; ruff and pytest still run on every leg.
+      - if: matrix.python-version == '3.12'
+        run: mypy src/quasarlab
       - run: python -m pytest -q

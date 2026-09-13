@@ -13,6 +13,13 @@ All notable changes to this project are documented in this file.
   one-file Windows executable, uploads it as an artifact, and attaches it to
   releases on version tags.
 
+### Changed
+
+- Type annotations use `numpy.typing.NDArray[np.float64]` so strict mypy does
+  not depend on the installed NumPy stub generation.
+- CI runs `mypy` on the Python 3.12 matrix leg (NumPy stubs older than 2.5
+  are not clean under mypy 2.x); ruff and pytest still run on every leg.
+
 ## [0.1.0] — Initial release
 
 - 2D particle with mass, position, and velocity (SI units).

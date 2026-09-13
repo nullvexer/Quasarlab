@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quasarlab._validation import as_nonnegative_float, as_positive_float
 from quasarlab.numerical.integrators import euler_step
@@ -21,9 +22,9 @@ class Trajectory:
     ``time`` has shape (N,); ``position`` and ``velocity`` have shape (N, 2).
     """
 
-    time: np.ndarray
-    position: np.ndarray
-    velocity: np.ndarray
+    time: NDArray[np.float64]
+    position: NDArray[np.float64]
+    velocity: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float)
@@ -50,22 +51,22 @@ class Trajectory:
         object.__setattr__(self, "velocity", velocity.copy())
 
     @property
-    def x(self) -> np.ndarray:
+    def x(self) -> NDArray[np.float64]:
         """Return the x coordinate of every sample."""
         return self.position[:, 0]
 
     @property
-    def y(self) -> np.ndarray:
+    def y(self) -> NDArray[np.float64]:
         """Return the y coordinate of every sample."""
         return self.position[:, 1]
 
     @property
-    def vx(self) -> np.ndarray:
+    def vx(self) -> NDArray[np.float64]:
         """Return the x velocity of every sample."""
         return self.velocity[:, 0]
 
     @property
-    def vy(self) -> np.ndarray:
+    def vy(self) -> NDArray[np.float64]:
         """Return the y velocity of every sample."""
         return self.velocity[:, 1]
 
@@ -87,7 +88,7 @@ class World:
 
     system: ParticleSystem
     dt: float
-    integrator: Callable[[State, np.ndarray, float], State] = euler_step
+    integrator: Callable[[State, NDArray[np.float64], float], State] = euler_step
 
     def __post_init__(self) -> None:
         if not isinstance(self.system, ParticleSystem):

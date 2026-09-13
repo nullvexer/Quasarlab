@@ -10,6 +10,7 @@ import math
 from typing import Any, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 def as_float(value: object, name: str) -> float:
@@ -45,7 +46,7 @@ def as_positive_float(value: object, name: str) -> float:
     return scalar
 
 
-def as_vector(value: object, name: str) -> np.ndarray:
+def as_vector(value: object, name: str) -> NDArray[np.float64]:
     """Return ``value`` as an owned finite float64 vector of shape (2,)."""
     try:
         vector = np.asarray(value, dtype=float)
