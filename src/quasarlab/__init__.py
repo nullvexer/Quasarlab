@@ -9,7 +9,7 @@ from quasarlab.physics.particle import Particle
 from quasarlab.physics.systems import ParticleSystem
 from quasarlab.simulation.world import Trajectory, World
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "Particle",

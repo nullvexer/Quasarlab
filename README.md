@@ -4,7 +4,7 @@ QuasarLab is a deterministic computational physics laboratory. Its physics
 engine is the source of truth: results are produced by explicit computation,
 not by heuristics or generated guesses.
 
-This repository currently contains **Version 0.1.0**, a deliberately small
+This repository currently contains **Version 0.1.1**, a deliberately small
 foundation: one 2D particle moving under uniform gravitational acceleration,
 integrated with explicit Euler and validated against the exact analytical
 solution.
@@ -94,7 +94,7 @@ This installs NumPy and Matplotlib, plus pytest for the test suite.
 python -m pytest
 ```
 
-The V0.1.0 suite contains 77 tests and passes.
+The 0.1.1 suite contains 77 tests and passes.
 
 ## Running the projectile example
 
