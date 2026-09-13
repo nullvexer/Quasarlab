@@ -8,6 +8,9 @@ All notable changes to this project are documented in this file.
 
 - Tkinter graphical interface (`quasarlab_gui.py`) that runs simulations
   through the deterministic engine and replays recorded trajectories.
+- Live parameter updates in the GUI: the plot refreshes automatically
+  (debounced) while inputs change; invalid input is reported in the status
+  label instead of a dialog.
 - `exe` optional dependency group (PyInstaller).
 - GitHub Actions workflow `windows-exe.yml` that builds and smoke-tests a
   one-file Windows executable, uploads it as an artifact, and attaches it to

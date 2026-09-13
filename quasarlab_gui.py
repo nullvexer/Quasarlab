@@ -30,6 +30,7 @@ from quasarlab import (
 MAX_STEPS = 200_000
 DEFAULT_DURATION_S = 3.0
 SELFTEST_MILLISECONDS = 1500
+LIVE_UPDATE_DELAY_MS = 300
 
 
 class ProjectileLab:
@@ -41,6 +42,7 @@ class ProjectileLab:
         self.trajectory: Trajectory | None = None
         self.initial_velocity: tuple[float, float] | None = None
         self.animation: FuncAnimation | None = None
+        self._refresh_job: str | None = None
         root.title("QuasarLab - Projectile Lab")
         root.minsize(780, 500)
         root.columnconfigure(1, weight=1)
@@ -56,13 +58,15 @@ class ProjectileLab:
         self.mass = self._entry(panel, 2, "Mass [kg]", "1.0")
         self.gravity = self._entry(panel, 3, "Gravity magnitude [m/s^2]", "9.81")
         self.dt = self._entry(panel, 4, "Timestep dt [s]", "0.01")
+        for variable in (self.speed, self.angle, self.mass, self.gravity, self.dt):
+            variable.trace_add("write", self._on_parameter_changed)
         ttk.Button(panel, text="Run simulation", command=self.run_simulation).grid(
             row=5, column=0, columnspan=2, sticky="ew", pady=(12, 4)
         )
         ttk.Button(panel, text="Animate flight", command=self.animate_flight).grid(
             row=6, column=0, columnspan=2, sticky="ew", pady=4
         )
-        self.info = tk.StringVar(value="Set parameters, then press 'Run simulation'.")
+        self.info = tk.StringVar(value="Edit any value - the plot updates automatically.")
         ttk.Label(panel, textvariable=self.info, wraplength=230, justify="left").grid(
             row=7, column=0, columnspan=2, sticky="nw", pady=(12, 0)
         )
@@ -91,6 +95,19 @@ class ProjectileLab:
 
     def run_simulation(self) -> None:
         """Read the form, run the deterministic engine, and display the result."""
+        self._compute_and_show(show_errors=True)
+
+    def _on_parameter_changed(self, *_args: object) -> None:
+        """Debounce live updates so typing does not trigger a run per keystroke."""
+        if self._refresh_job is not None:
+            self.root.after_cancel(self._refresh_job)
+        self._refresh_job = self.root.after(LIVE_UPDATE_DELAY_MS, self._auto_refresh)
+
+    def _auto_refresh(self) -> None:
+        self._refresh_job = None
+        self._compute_and_show(show_errors=False)
+
+    def _compute_and_show(self, *, show_errors: bool) -> None:
         try:
             speed = float(self.speed.get())
             angle_deg = float(self.angle.get())
@@ -106,7 +123,10 @@ class ProjectileLab:
         except ValueError as exc:
             if not self.interactive:
                 raise
-            messagebox.showerror("Invalid input", str(exc))
+            if show_errors:
+                messagebox.showerror("Invalid input", str(exc))
+            else:
+                self.info.set(f"Waiting for valid input: {exc}")
             return
 
         angle = math.radians(angle_deg)
@@ -125,7 +145,10 @@ class ProjectileLab:
         except (TypeError, ValueError) as exc:
             if not self.interactive:
                 raise
-            messagebox.showerror("Simulation error", str(exc))
+            if show_errors:
+                messagebox.showerror("Simulation error", str(exc))
+            else:
+                self.info.set(f"Cannot simulate: {exc}")
             return
 
         self._stop_animation()

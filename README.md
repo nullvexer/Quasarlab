@@ -130,9 +130,13 @@ python quasarlab_gui.py
 A small Tkinter window opens:
 
 - set launch speed, angle, mass, gravity magnitude, and timestep,
-- press **Run simulation** to compute the flight with the deterministic engine,
+- the plot updates automatically (debounced) as you edit any value,
+- press **Run simulation** to force an immediate recomputation,
 - press **Animate flight** to replay the recorded trajectory,
 - the plot overlays the analytical solution and reports the numerical error.
+
+While typing, invalid or extreme input is reported in the status label instead
+of a dialog, and the last valid plot stays on screen.
 
 The interface only collects parameters and displays results; every physics
 number comes from the QuasarLab engine.
