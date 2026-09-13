@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quasarlab"
+version = "0.1.0"
+description = "A deterministic computational physics laboratory"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Erfan" }]
+keywords = ["physics", "simulation", "numerical-methods", "education"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+dev = ["ruff>=0.6", "mypy>=1.10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+# No pinned python_version: mypy defaults to the interpreter running it,
+# which must match whichever Python the CI matrix leg is currently on.
+# Pinning this to the project's minimum (3.10) breaks on newer NumPy:
+# NumPy 2.5 dropped Python 3.11 and requires 3.12+, and its bundled stub
+# files use 3.12-only syntax (the PEP 695 `type` statement). Reproduced
+# locally: with python_version = "3.10" pinned and NumPy 2.5.3 installed,
+# `mypy src/quasarlab` fails immediately with
+#   "Type statement is only supported in Python 3.12 and greater  [syntax]"
+# before checking a single line of this project's own code. Removing the
+# pin fixes it because mypy then parses NumPy's stubs at whatever Python
+# version is actually running it.
+strict = true
