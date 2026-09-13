@@ -1,0 +1,33 @@
+name: Build Windows EXE
+
+"on":
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and PyInstaller
+        run: python -m pip install -e ".[exe]"
+      - name: Build one-file executable
+        run: python -m PyInstaller --onefile --windowed --name QuasarLab quasarlab_gui.py
+      - name: Smoke-test the executable
+        run: .\dist\QuasarLab.exe --selftest
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuasarLab-windows-exe
+          path: dist/QuasarLab.exe
+      - name: Attach executable to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/QuasarLab.exe

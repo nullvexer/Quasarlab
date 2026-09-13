@@ -19,6 +19,8 @@ solution.
 - Exact constant-acceleration analytical reference solution
 - Numerical-vs-analytical error checks and convergence tests
 - Matplotlib trajectory visualization
+- Tkinter graphical interface (`quasarlab_gui.py`) on top of the engine
+- GitHub Actions workflow that packages a Windows `.exe`
 - Clear rejection of invalid physical and numerical input
 
 ## Physics implemented
@@ -119,6 +121,38 @@ trajectory together with the analytical trajectory. With the default settings,
 the example reports a maximum position error of about `0.142 m` for
 `dt = 0.01 s`.
 
+## Graphical interface
+
+```bash
+python quasarlab_gui.py
+```
+
+A small Tkinter window opens:
+
+- set launch speed, angle, mass, gravity magnitude, and timestep,
+- press **Run simulation** to compute the flight with the deterministic engine,
+- press **Animate flight** to replay the recorded trajectory,
+- the plot overlays the analytical solution and reports the numerical error.
+
+The interface only collects parameters and displays results; every physics
+number comes from the QuasarLab engine.
+
+## Building a Windows executable
+
+Locally:
+
+```bash
+python -m pip install -e ".[test,dev,exe]"
+python -m PyInstaller --onefile --windowed --name QuasarLab quasarlab_gui.py
+dist\QuasarLab.exe --selftest
+```
+
+On GitHub, the `Build Windows EXE` workflow
+(`.github/workflows/windows-exe.yml`) builds and smoke-tests the same
+executable on every push and pull request and uploads it as a run artifact.
+Pushing a tag `v...` also attaches the executable to a GitHub release.
+Download it from the repository's **Actions** (or **Releases**) page.
+
 ## Architecture
 
 ```text
@@ -126,6 +160,7 @@ QuasarLab/
 ├── README.md
 ├── pyproject.toml
 ├── .gitignore
+├── quasarlab_gui.py
 ├── src/quasarlab/
 │   ├── physics/
 │   │   ├── particle.py
@@ -159,6 +194,8 @@ Layer responsibilities:
 - The world runs in whole fixed timesteps; `duration` must be a multiple of
   `dt`.
 - There is no collision, ground, drag, rotation, or energy analysis yet.
+- The GUI is an application script on top of the engine; it is not covered by
+  the unit-test suite.
 
 ## Future direction
 
