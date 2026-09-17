@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,6 +11,15 @@ from quasarlab._validation import as_vector
 from quasarlab.numerical.state import State
 from quasarlab.physics.forces import ForceLaw
 from quasarlab.physics.particle import Particle
+
+
+@dataclass(frozen=True)
+class ForceEvaluation:
+    """Instantaneous force contributions, their sum (N), and acceleration (m/s²)."""
+
+    contributions: tuple[tuple[str, NDArray[np.float64]], ...]
+    net_force: NDArray[np.float64]
+    acceleration: NDArray[np.float64]
 
 
 @dataclass
@@ -42,11 +50,26 @@ class ParticleSystem:
 
     def net_force(self, state: State) -> NDArray[np.float64]:
         """Return the total force on the particle at ``state`` in newtons."""
-        total: NDArray[Any] = np.zeros(2, dtype=float)
-        for law in self.forces:
-            force = as_vector(law.force(self.particle, state), "force")
+        total: NDArray[np.float64] = np.zeros(2, dtype=float)
+        for _, force in self.force_contributions(state):
             total = np.asarray(total + force, dtype=float)
         return total
+
+    def force_contributions(
+        self, state: State
+    ) -> tuple[tuple[str, NDArray[np.float64]], ...]:
+        """Return ``(label, force)`` pairs for every law, in composition order.
+
+        The labels come from each law's ``label`` attribute (falling back to
+        the class name for user-defined laws).  The forces sum exactly to
+        :meth:`net_force`; this is the engine-side force breakdown used for
+        free-body transparency.
+        """
+        contributions = []
+        for law in self.forces:
+            label = str(getattr(law, "label", type(law).__name__))
+            contributions.append((label, as_vector(law.force(self.particle, state), "force")))
+        return tuple(contributions)
 
     def acceleration(self, state: State) -> NDArray[np.float64]:
         """Return the acceleration ``a = F_total / m`` in m/s^2."""

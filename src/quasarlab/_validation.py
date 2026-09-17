@@ -46,6 +46,13 @@ def as_positive_float(value: object, name: str) -> float:
     return scalar
 
 
+def as_label(value: object, name: str) -> str:
+    """Return ``value`` as a non-empty string label, or raise."""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a non-empty string, got {value!r}")
+    return value
+
+
 def as_vector(value: object, name: str) -> NDArray[np.float64]:
     """Return ``value`` as an owned finite float64 vector of shape (2,)."""
     try:

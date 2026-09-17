@@ -1,19 +1,20 @@
-"""Exact analytical references for constant-acceleration motion.
+"""Exact analytical references used to validate numerical results.
 
-For constant acceleration ``a``:
+These are closed-form mathematical solutions, not approximations:
 
-    x(t) = x0 + v0 t + (1/2) a t^2
-    v(t) = v0 + a t
-
-These are mathematical references used to validate numerical results.
+* constant acceleration ( ballistic motion / constant net force),
+* 1D motion with linear drag and a constant driving force,
+* 1D vertical fall from rest with quadratic drag.
 """
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from numpy.typing import NDArray
 
-from quasarlab._validation import as_vector
+from quasarlab._validation import as_float, as_positive_float, as_vector
 
 
 def _time_array(t: object) -> NDArray[np.float64]:
@@ -62,3 +63,78 @@ def velocity(t: object, initial_velocity: object, acceleration: object) -> NDArr
     else:
         result = v0 + a * t_array[:, None]
     return np.asarray(result, dtype=float)
+
+
+def linear_drag_velocity(
+    t: object, v0: float, gamma: float, v_terminal: float
+) -> float | NDArray[np.float64]:
+    """Return the exact 1D velocity with linear drag and a constant driving force.
+
+    For ``m dv/dt = F - b v`` (quantities signed along one axis) the exact
+    solution is ``v(t) = v_terminal + (v0 - v_terminal) exp(-gamma t)`` with
+    ``gamma = b/m`` and ``v_terminal = F/b``.  ``gamma`` must be positive.
+    """
+    t_array = _time_array(t)
+    v0 = as_float(v0, "v0")
+    gamma = as_positive_float(gamma, "gamma")
+    v_terminal = as_float(v_terminal, "v_terminal")
+    if t_array.ndim == 0:
+        return v_terminal + (v0 - v_terminal) * math.exp(-gamma * float(t_array))
+    return v_terminal + (v0 - v_terminal) * np.exp(-gamma * t_array)
+
+
+def linear_drag_position(
+    t: object, x0: float, v0: float, gamma: float, v_terminal: float
+) -> float | NDArray[np.float64]:
+    """Return the exact 1D position with linear drag and a constant driving force.
+
+    ``x(t) = x0 + v_terminal t + (v0 - v_terminal)(1 - exp(-gamma t)) / gamma``.
+    """
+    t_array = _time_array(t)
+    x0 = as_float(x0, "x0")
+    v0 = as_float(v0, "v0")
+    gamma = as_positive_float(gamma, "gamma")
+    v_terminal = as_float(v_terminal, "v_terminal")
+    if t_array.ndim == 0:
+        elapsed = float(t_array)
+        return x0 + v_terminal * elapsed + (v0 - v_terminal) * (
+            1.0 - math.exp(-gamma * elapsed)
+        ) / gamma
+    approach = (v0 - v_terminal) * (1.0 - np.exp(-gamma * t_array)) / gamma
+    return x0 + v_terminal * t_array + approach
+
+
+def quadratic_drag_fall_speed(
+    t: object, v_terminal: float, g: float
+) -> float | NDArray[np.float64]:
+    """Return the exact downward speed for a fall from rest with quadratic drag.
+
+    For ``m dv/dt = m g - k v^2`` (downward positive) the exact solution is
+    ``v(t) = v_terminal tanh(g t / v_terminal)`` with
+    ``v_terminal = sqrt(m g / k)``.  The result is a nonnegative speed.
+    """
+    t_array = _time_array(t)
+    v_terminal = as_positive_float(v_terminal, "v_terminal")
+    g = as_positive_float(g, "g")
+    if t_array.ndim == 0:
+        return v_terminal * math.tanh(g * float(t_array) / v_terminal)
+    return v_terminal * np.tanh(g * t_array / v_terminal)
+
+
+def quadratic_drag_fall_distance(
+    t: object, v_terminal: float, g: float
+) -> float | NDArray[np.float64]:
+    """Return the exact fallen distance for a fall from rest with quadratic drag.
+
+    ``d(t) = (v_terminal^2 / g) ln(cosh(g t / v_terminal))`` — the integral of
+    :func:`quadratic_drag_fall_speed`.
+    """
+    t_array = _time_array(t)
+    v_terminal = as_positive_float(v_terminal, "v_terminal")
+    g = as_positive_float(g, "g")
+    argument = g * t_array / v_terminal
+    log_cosh = np.logaddexp(argument, -argument) - math.log(2.0)
+    distance = (v_terminal**2 / g) * log_cosh
+    if t_array.ndim == 0:
+        return float(distance)
+    return np.asarray(distance, dtype=float)

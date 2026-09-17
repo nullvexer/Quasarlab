@@ -12,7 +12,8 @@ from numpy.typing import NDArray
 from quasarlab._validation import as_nonnegative_float, as_positive_float
 from quasarlab.numerical.integrators import euler_step
 from quasarlab.numerical.state import State
-from quasarlab.physics.systems import ParticleSystem
+from quasarlab.physics.contact import ContactModel, PlaneSurface
+from quasarlab.physics.systems import ForceEvaluation, ParticleSystem
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,12 @@ class World:
     be a nonnegative multiple of ``dt``; ``run_steps`` can be used for an exact
     number of whole timesteps.
 
+    ``contact`` optionally attaches a contact model (e.g. a frictional plane).
+    With contact, each step evaluates the net applied force, asks the contact
+    for its reaction (normal + friction), integrates, and then applies the
+    contact's discrete-time kinematic constraint.  Without contact the loop is
+    exactly the V0.1 loop.
+
     V0.1 scopes this to exactly one particle; multi-particle systems are
     deferred to the V0.3 roadmap item.
     """
@@ -89,6 +96,7 @@ class World:
     system: ParticleSystem
     dt: float
     integrator: Callable[[State, NDArray[np.float64], float], State] = euler_step
+    contact: ContactModel | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.system, ParticleSystem):
@@ -96,12 +104,33 @@ class World:
         self.dt = as_positive_float(self.dt, "dt")
         if not callable(self.integrator):
             raise TypeError("integrator must be callable")
+        if self.contact is not None and not isinstance(self.contact, ContactModel):
+            raise TypeError("contact must implement the ContactModel protocol")
 
     @property
     def initial_state(self) -> State:
         """Return the initial state derived from the system's particle."""
         particle = self.system.particle
         return State(0.0, particle.position, particle.velocity)
+
+    def evaluate_forces(self, state: State) -> ForceEvaluation:
+        """Evaluate instantaneous loads, including contact, without advancing time."""
+        contributions = self.system.force_contributions(state)
+        total = np.zeros(2, dtype=float)
+        for _, force in contributions:
+            total += force
+        if self.contact is not None:
+            if isinstance(self.contact, PlaneSurface):
+                contact_forces = self.contact.force_contributions(
+                    self.system.particle, state, total
+                )
+            else:
+                reaction = self.contact.reaction(self.system.particle, state, total)
+                contact_forces = (("contact", reaction),)
+            contributions += contact_forces
+            for _, force in contact_forces:
+                total += force
+        return ForceEvaluation(contributions, total, total / self.system.particle.mass)
 
     def run_steps(self, n_steps: int) -> Trajectory:
         """Run exactly ``n_steps`` whole timesteps and return the trajectory."""
@@ -111,12 +140,23 @@ class World:
             raise ValueError(f"n_steps must be nonnegative, got {n_steps}")
 
         state = self.initial_state
+        if self.contact is not None:
+            self.contact.reaction(self.system.particle, state, self.system.net_force(state))
         times = [state.time]
         positions = [state.position.copy()]
         velocities = [state.velocity.copy()]
         for _ in range(n_steps):
-            acceleration = self.system.acceleration(state)
-            state = self.integrator(state, acceleration, self.dt)
+            if self.contact is None:
+                acceleration = self.system.acceleration(state)
+                state = self.integrator(state, acceleration, self.dt)
+            else:
+                particle = self.system.particle
+                applied = self.system.net_force(state)
+                contact_force = self.contact.reaction(particle, state, applied)
+                acceleration = (applied + contact_force) / particle.mass
+                previous_state = state
+                state = self.integrator(state, acceleration, self.dt)
+                state = self.contact.constrain(particle, previous_state, state, applied, self.dt)
             if not isinstance(state, State):
                 raise TypeError(f"integrator must return a State, got {type(state).__name__}")
             times.append(state.time)

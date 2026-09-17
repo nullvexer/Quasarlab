@@ -1,8 +1,10 @@
-"""QuasarLab projectile lab: a Tkinter interface on top of the physics engine.
+"""QuasarLab physics lab: a Tkinter interface on top of the physics engine.
 
-The GUI never computes physics results itself.  It translates form inputs
-into structured parameters, hands them to the deterministic engine, and
-displays the engine's recorded trajectory.
+The GUI never computes physics results itself.  Scenarios translate form
+inputs into structured engine parameters (initial conditions, force laws,
+contact model, duration); the deterministic engine performs every physical
+computation; the GUI displays recorded engine data, engine force breakdowns,
+and references computed by the engine's own analytical functions.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import argparse
 import math
 import sys
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import messagebox, ttk
 
 import numpy as np
@@ -19,74 +22,431 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from quasarlab import (
+    ConstantForce,
+    LinearDrag,
     Particle,
     ParticleSystem,
+    QuadraticDrag,
+    State,
     Trajectory,
     UniformGravity,
     World,
     analytical_position,
+    horizontal_surface,
+    inclined_surface,
+    linear_drag_position,
+    quadratic_drag_fall_distance,
 )
+from quasarlab.physics.contact import ContactModel
+from quasarlab.visualization.plotting import plot_component_vs_time, plot_trajectory
 
 MAX_STEPS = 200_000
-DEFAULT_DURATION_S = 3.0
 SELFTEST_MILLISECONDS = 1500
 LIVE_UPDATE_DELAY_MS = 300
+DEFAULT_DURATION_S = 3.0
 
 
-class ProjectileLab:
-    """Main application window."""
+@dataclass(frozen=True)
+class FieldSpec:
+    """One GUI parameter: a key, a label with units, and a default value."""
+
+    key: str
+    label: str
+    default: str
+
+
+@dataclass(frozen=True)
+class SimulationSetup:
+    """Everything the engine needs for one scenario run.
+
+    All quantities come from engine objects; ``extra_info`` carries
+    engine-derived summary values (e.g. a terminal speed).
+    """
+
+    system: ParticleSystem
+    contact: ContactModel | None
+    duration: float
+    plot_title: str
+    extra_info: str = ""
+
+
+class Scenario:
+    """A named experiment: parameter fields plus engine assembly and display."""
+
+    name = ""
+    fields: tuple[FieldSpec, ...] = ()
+
+    def build(self, values: dict[str, float]) -> SimulationSetup:
+        """Translate form values into engine objects (no physics results here)."""
+        raise NotImplementedError
+
+    def plot(self, axis, trajectory: Trajectory, setup: SimulationSetup, values: dict[str, float]):
+        """Render the recorded data; return the (x, y) path used for animation."""
+        raise NotImplementedError
+
+    def report(
+        self, trajectory: Trajectory, setup: SimulationSetup, values: dict[str, float]
+    ) -> str:
+        """Return scenario-specific lines built from engine-computed data."""
+        return ""
+
+
+def _flight_duration(initial_velocity_y: float, gravity: float, dt: float) -> float:
+    """Duration covering the ballistic arc (experiment design, not physics)."""
+    if initial_velocity_y > 0.0:
+        flight_time = 2.0 * initial_velocity_y / gravity
+    else:
+        flight_time = DEFAULT_DURATION_S
+    return math.ceil(flight_time / dt) * dt
+
+
+class ProjectileScenario(Scenario):
+    name = "Projectile (gravity)"
+    fields = (
+        FieldSpec("speed", "Launch speed [m/s]", "20.0"),
+        FieldSpec("angle", "Launch angle [deg]", "45"),
+        FieldSpec("gravity", "Gravity [m/s^2]", "9.81"),
+        FieldSpec("mass", "Mass [kg]", "1.0"),
+        FieldSpec("dt", "Timestep dt [s]", "0.01"),
+    )
+
+    def build(self, values):
+        speed = values["speed"]
+        angle = math.radians(values["angle"])
+        gravity = values["gravity"]
+        initial_velocity = (speed * math.cos(angle), speed * math.sin(angle))
+        particle = Particle(values["mass"], (0.0, 0.0), initial_velocity)
+        system = ParticleSystem(particle, [UniformGravity((0.0, -gravity))])
+        return SimulationSetup(
+            system=system,
+            contact=None,
+            duration=_flight_duration(initial_velocity[1], gravity, values["dt"]),
+            plot_title="Projectile trajectory",
+        )
+
+    def plot(self, axis, trajectory, setup, values):
+        reference = analytical_position(
+            trajectory.time,
+            (0.0, 0.0),
+            setup.system.particle.velocity,
+            (0.0, -values["gravity"]),
+        )
+        plot_trajectory(
+            trajectory, analytical_positions=reference, ax=axis, title=setup.plot_title
+        )
+        return trajectory.x, trajectory.y
+
+    def report(self, trajectory, setup, values):
+        reference = analytical_position(
+            trajectory.time,
+            (0.0, 0.0),
+            setup.system.particle.velocity,
+            (0.0, -values["gravity"]),
+        )
+        max_error = float(np.max(np.abs(trajectory.position - reference)))
+        return (
+            f"Max height: {float(np.max(trajectory.y)):.2f} m\n"
+            f"Max error vs analytical: {max_error:.4f} m"
+        )
+
+
+class AppliedForceScenario(Scenario):
+    name = "Applied force"
+    fields = (
+        FieldSpec("speed", "Launch speed [m/s]", "10.0"),
+        FieldSpec("angle", "Launch angle [deg]", "30"),
+        FieldSpec("fx", "Applied force Fx [N]", "4.0"),
+        FieldSpec("fy", "Applied force Fy [N]", "0.0"),
+        FieldSpec("gravity", "Gravity [m/s^2]", "9.81"),
+        FieldSpec("mass", "Mass [kg]", "2.0"),
+        FieldSpec("dt", "Timestep dt [s]", "0.01"),
+    )
+
+    def build(self, values):
+        speed = values["speed"]
+        angle = math.radians(values["angle"])
+        gravity = values["gravity"]
+        initial_velocity = (speed * math.cos(angle), speed * math.sin(angle))
+        particle = Particle(values["mass"], (0.0, 0.0), initial_velocity)
+        system = ParticleSystem(
+            particle,
+            [UniformGravity((0.0, -gravity)), ConstantForce((values["fx"], values["fy"]))],
+        )
+        return SimulationSetup(
+            system=system,
+            contact=None,
+            duration=_flight_duration(initial_velocity[1], gravity, values["dt"]),
+            plot_title="Motion under gravity and a constant applied force",
+        )
+
+    def plot(self, axis, trajectory, setup, values):
+        # Constant net force -> constant acceleration; the acceleration is the
+        # engine's own Newton-second-law result at the initial state.
+        acceleration = setup.system.acceleration(
+            State(0.0, setup.system.particle.position, setup.system.particle.velocity)
+        )
+        reference = analytical_position(
+            trajectory.time,
+            (0.0, 0.0),
+            setup.system.particle.velocity,
+            acceleration,
+        )
+        plot_trajectory(
+            trajectory, analytical_positions=reference, ax=axis, title=setup.plot_title
+        )
+        return trajectory.x, trajectory.y
+
+    def report(self, trajectory, setup, values):
+        acceleration = setup.system.acceleration(
+            State(0.0, setup.system.particle.position, setup.system.particle.velocity)
+        )
+        reference = analytical_position(
+            trajectory.time, (0.0, 0.0), setup.system.particle.velocity, acceleration
+        )
+        max_error = float(np.max(np.abs(trajectory.position - reference)))
+        return f"Max error vs analytical: {max_error:.4f} m"
+
+
+class LinearDragScenario(Scenario):
+    name = "Linear drag (falling)"
+    fields = (
+        FieldSpec("b", "Drag coefficient b [kg/s]", "0.4"),
+        FieldSpec("gravity", "Gravity [m/s^2]", "9.81"),
+        FieldSpec("mass", "Mass [kg]", "2.0"),
+        FieldSpec("height", "Drop height [m]", "20.0"),
+        FieldSpec("duration", "Duration [s]", "3.0"),
+        FieldSpec("dt", "Timestep dt [s]", "0.001"),
+    )
+
+    def build(self, values):
+        particle = Particle(values["mass"], (0.0, values["height"]), (0.0, 0.0))
+        system = ParticleSystem(
+            particle,
+            [UniformGravity((0.0, -values["gravity"])), LinearDrag(values["b"])],
+        )
+        return SimulationSetup(
+            system=system,
+            contact=None,
+            duration=values["duration"],
+            plot_title="Vertical fall with linear drag",
+        )
+
+    def plot(self, axis, trajectory, setup, values):
+        gamma = values["b"] / values["mass"]
+        v_terminal = -values["mass"] * values["gravity"] / values["b"]
+        if values["b"] > 0.0:
+            reference = linear_drag_position(
+                trajectory.time, values["height"], 0.0, gamma, v_terminal
+            )
+        else:
+            reference = None
+        plot_component_vs_time(
+            trajectory,
+            "y",
+            reference_times=None if reference is None else trajectory.time,
+            reference_values=reference,
+            ax=axis,
+            title=setup.plot_title,
+        )
+        return trajectory.time, trajectory.y
+
+    def report(self, trajectory, setup, values):
+        if values["b"] <= 0.0:
+            return ""
+        v_terminal = -values["mass"] * values["gravity"] / values["b"]
+        return (
+            f"Terminal velocity: {v_terminal:.3f} m/s (exact: F/b)\n"
+            f"Final velocity: {float(trajectory.vy[-1]):.3f} m/s"
+        )
+
+
+class QuadraticDragScenario(Scenario):
+    name = "Quadratic drag (falling)"
+    fields = (
+        FieldSpec("density", "Fluid density [kg/m^3]", "1.225"),
+        FieldSpec("cd", "Drag coefficient Cd", "1.0"),
+        FieldSpec("area", "Reference area [m^2]", "0.5"),
+        FieldSpec("gravity", "Gravity [m/s^2]", "9.81"),
+        FieldSpec("mass", "Mass [kg]", "80.0"),
+        FieldSpec("height", "Drop height [m]", "500.0"),
+        FieldSpec("duration", "Duration [s]", "15.0"),
+        FieldSpec("dt", "Timestep dt [s]", "0.001"),
+    )
+
+    def build(self, values):
+        law = QuadraticDrag(values["density"], values["cd"], values["area"])
+        particle = Particle(values["mass"], (0.0, values["height"]), (0.0, 0.0))
+        system = ParticleSystem(
+            particle, [UniformGravity((0.0, -values["gravity"])), law]
+        )
+        extra = ""
+        if law.drag_factor > 0.0:
+            terminal = law.terminal_speed(values["mass"], values["gravity"])
+            extra = f"Terminal speed (engine): {terminal:.3f} m/s\n"
+        return SimulationSetup(
+            system=system,
+            contact=None,
+            duration=values["duration"],
+            plot_title="Vertical fall with quadratic drag",
+            extra_info=extra,
+        )
+
+    def plot(self, axis, trajectory, setup, values):
+        law = QuadraticDrag(values["density"], values["cd"], values["area"])
+        reference = None
+        if law.drag_factor > 0.0:
+            terminal = law.terminal_speed(values["mass"], values["gravity"])
+            reference = values["height"] - quadratic_drag_fall_distance(
+                trajectory.time, terminal, values["gravity"]
+            )
+        plot_component_vs_time(
+            trajectory,
+            "y",
+            reference_times=None if reference is None else trajectory.time,
+            reference_values=reference,
+            ax=axis,
+            title=setup.plot_title,
+        )
+        return trajectory.time, trajectory.y
+
+    def report(self, trajectory, setup, values):
+        return f"Final speed: {abs(float(trajectory.vy[-1])):.3f} m/s"
+
+
+class FrictionScenario(Scenario):
+    name = "Friction on a surface"
+    fields = (
+        FieldSpec("mu_s", "Static friction mu_s", "0.5"),
+        FieldSpec("mu_k", "Kinetic friction mu_k", "0.3"),
+        FieldSpec("fx", "Applied horizontal force [N]", "12.0"),
+        FieldSpec("incline", "Incline angle [deg] (0 = flat)", "0.0"),
+        FieldSpec("v0", "Initial speed along surface [m/s]", "0.0"),
+        FieldSpec("gravity", "Gravity [m/s^2]", "9.81"),
+        FieldSpec("mass", "Mass [kg]", "2.0"),
+        FieldSpec("duration", "Duration [s]", "3.0"),
+        FieldSpec("dt", "Timestep dt [s]", "0.001"),
+    )
+
+    def build(self, values):
+        angle = math.radians(values["incline"])
+        if values["incline"] == 0.0:
+            surface = horizontal_surface(values["mu_s"], values["mu_k"])
+        else:
+            surface = inclined_surface(values["mu_s"], values["mu_k"], angle)
+        particle = Particle(
+            values["mass"],
+            (0.0, 0.0),
+            (values["v0"] * math.cos(angle), values["v0"] * math.sin(angle)),
+        )
+        system = ParticleSystem(
+            particle,
+            [
+                UniformGravity((0.0, -values["gravity"])),
+                ConstantForce((values["fx"], 0.0)),
+            ],
+        )
+        return SimulationSetup(
+            system=system,
+            contact=surface,
+            duration=values["duration"],
+            plot_title="Block on a surface with Coulomb friction",
+        )
+
+    def plot(self, axis, trajectory, setup, values):
+        plot_trajectory(trajectory, ax=axis, title=setup.plot_title)
+        return trajectory.x, trajectory.y
+
+    def report(self, trajectory, setup, values):
+        traveled = float(np.linalg.norm(trajectory.position[-1] - trajectory.position[0]))
+        return f"Distance traveled: {traveled:.3f} m"
+
+
+SCENARIOS: tuple[Scenario, ...] = (
+    ProjectileScenario(),
+    AppliedForceScenario(),
+    LinearDragScenario(),
+    QuadraticDragScenario(),
+    FrictionScenario(),
+)
+
+
+class PhysicsLab:
+    """Main application window: scenarios, live updates, engine results."""
 
     def __init__(self, root: tk.Tk, *, interactive: bool = True) -> None:
         self.root = root
         self.interactive = interactive
         self.trajectory: Trajectory | None = None
-        self.initial_velocity: tuple[float, float] | None = None
         self.animation: FuncAnimation | None = None
+        self._animation_path: tuple[np.ndarray, np.ndarray] | None = None
         self._refresh_job: str | None = None
-        root.title("QuasarLab - Projectile Lab")
-        root.minsize(780, 500)
+        self._variables: dict[str, tk.StringVar] = {}
+        root.title("QuasarLab - Physics Lab")
+        root.minsize(880, 540)
         root.columnconfigure(1, weight=1)
         root.rowconfigure(0, weight=1)
         self._build_controls()
         self._build_plot()
 
+    def _current_scenario(self) -> Scenario:
+        for scenario in SCENARIOS:
+            if scenario.name == self._scenario_selector.get():
+                return scenario
+        return SCENARIOS[0]
+
     def _build_controls(self) -> None:
         panel = ttk.Frame(self.root, padding=10)
         panel.grid(row=0, column=0, sticky="ns")
-        self.speed = self._entry(panel, 0, "Launch speed [m/s]", "20.0")
-        self.angle = self._entry(panel, 1, "Launch angle [deg]", "45")
-        self.mass = self._entry(panel, 2, "Mass [kg]", "1.0")
-        self.gravity = self._entry(panel, 3, "Gravity magnitude [m/s^2]", "9.81")
-        self.dt = self._entry(panel, 4, "Timestep dt [s]", "0.01")
-        for variable in (self.speed, self.angle, self.mass, self.gravity, self.dt):
-            variable.trace_add("write", self._on_parameter_changed)
-        ttk.Button(panel, text="Run simulation", command=self.run_simulation).grid(
-            row=5, column=0, columnspan=2, sticky="ew", pady=(12, 4)
+        self._scenario_selector = tk.StringVar(value=SCENARIOS[0].name)
+        selector = ttk.Combobox(
+            panel,
+            textvariable=self._scenario_selector,
+            values=[scenario.name for scenario in SCENARIOS],
+            state="readonly",
+            width=28,
         )
-        ttk.Button(panel, text="Animate flight", command=self.animate_flight).grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=4
+        selector.grid(row=0, column=0, sticky="ew")
+        selector.bind("<<ComboboxSelected>>", self._on_scenario_changed)
+
+        self._parameter_frame = ttk.Frame(panel)
+        self._parameter_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(1, weight=1)
+
+        ttk.Button(panel, text="Run simulation", command=self.run_simulation).grid(
+            row=2, column=0, sticky="ew", pady=(8, 4)
+        )
+        ttk.Button(panel, text="Animate motion", command=self.animate_motion).grid(
+            row=3, column=0, sticky="ew", pady=4
         )
         self.info = tk.StringVar(value="Edit any value - the plot updates automatically.")
-        ttk.Label(panel, textvariable=self.info, wraplength=230, justify="left").grid(
-            row=7, column=0, columnspan=2, sticky="nw", pady=(12, 0)
+        ttk.Label(panel, textvariable=self.info, wraplength=260, justify="left").grid(
+            row=4, column=0, sticky="nw", pady=(8, 0)
         )
-        panel.columnconfigure(1, weight=1)
+        self._rebuild_parameter_panel()
 
-    def _entry(self, panel: ttk.Frame, row: int, label: str, default: str) -> tk.StringVar:
-        ttk.Label(panel, text=label).grid(row=row, column=0, sticky="w", pady=2)
-        variable = tk.StringVar(value=default)
-        ttk.Entry(panel, textvariable=variable, width=12).grid(
-            row=row, column=1, sticky="e", pady=2
-        )
-        return variable
+    def _rebuild_parameter_panel(self) -> None:
+        for child in self._parameter_frame.winfo_children():
+            child.destroy()
+        self._variables = {}
+        scenario = self._current_scenario()
+        for row, field in enumerate(scenario.fields):
+            variable = tk.StringVar(value=field.default)
+            ttk.Label(self._parameter_frame, text=field.label).grid(
+                row=row, column=0, sticky="w", pady=1
+            )
+            ttk.Entry(self._parameter_frame, textvariable=variable, width=12).grid(
+                row=row, column=1, sticky="e", pady=1
+            )
+            self._variables[field.key] = variable
+            variable.trace_add("write", self._on_parameter_changed)
+        self._request_refresh()
 
     def _build_plot(self) -> None:
         frame = ttk.Frame(self.root)
         frame.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
-        self.figure = Figure(figsize=(6.0, 4.5), dpi=100)
+        self.figure = Figure(figsize=(6.4, 4.8), dpi=100)
         self.axis = self.figure.add_subplot(111)
-        self.axis.set_xlabel("x [m]")
-        self.axis.set_ylabel("y [m]")
         self.axis.grid(True, alpha=0.3)
         self.canvas = FigureCanvasTkAgg(self.figure, master=frame)
         self.toolbar = NavigationToolbar2Tk(self.canvas, frame, pack_toolbar=False)
@@ -97,28 +457,27 @@ class ProjectileLab:
         """Read the form, run the deterministic engine, and display the result."""
         self._compute_and_show(show_errors=True)
 
+    def _on_scenario_changed(self, *_args: object) -> None:
+        self._rebuild_parameter_panel()
+
     def _on_parameter_changed(self, *_args: object) -> None:
         """Debounce live updates so typing does not trigger a run per keystroke."""
         if self._refresh_job is not None:
             self.root.after_cancel(self._refresh_job)
         self._refresh_job = self.root.after(LIVE_UPDATE_DELAY_MS, self._auto_refresh)
 
+    def _request_refresh(self) -> None:
+        self._on_parameter_changed()
+
     def _auto_refresh(self) -> None:
         self._refresh_job = None
         self._compute_and_show(show_errors=False)
 
     def _compute_and_show(self, *, show_errors: bool) -> None:
+        scenario = self._current_scenario()
         try:
-            speed = float(self.speed.get())
-            angle_deg = float(self.angle.get())
-            mass = float(self.mass.get())
-            gravity = float(self.gravity.get())
-            dt = float(self.dt.get())
-            if speed <= 0.0:
-                raise ValueError("launch speed must be positive")
-            if gravity <= 0.0:
-                raise ValueError("gravity magnitude must be positive")
-            if dt <= 0.0:
+            values = {key: float(variable.get()) for key, variable in self._variables.items()}
+            if values["dt"] <= 0.0:
                 raise ValueError("timestep dt must be positive")
         except ValueError as exc:
             if not self.interactive:
@@ -129,19 +488,13 @@ class ProjectileLab:
                 self.info.set(f"Waiting for valid input: {exc}")
             return
 
-        angle = math.radians(angle_deg)
-        initial_velocity = (speed * math.cos(angle), speed * math.sin(angle))
         try:
-            particle = Particle(mass, (0.0, 0.0), initial_velocity)
-            system = ParticleSystem(particle, [UniformGravity((0.0, -gravity))])
-            if initial_velocity[1] > 0.0:
-                flight_time = 2.0 * initial_velocity[1] / gravity
-            else:
-                flight_time = DEFAULT_DURATION_S
-            n_steps = math.ceil(flight_time / dt)
+            setup = scenario.build(values)
+            dt = values["dt"]
+            n_steps = math.ceil(setup.duration / dt)
             if n_steps > MAX_STEPS:
                 raise ValueError(f"dt too small: more than {MAX_STEPS} steps required")
-            trajectory = World(system, dt=dt).run(n_steps * dt)
+            trajectory = World(setup.system, dt=dt, contact=setup.contact).run(n_steps * dt)
         except (TypeError, ValueError) as exc:
             if not self.interactive:
                 raise
@@ -153,70 +506,75 @@ class ProjectileLab:
 
         self._stop_animation()
         self.trajectory = trajectory
-        self.initial_velocity = initial_velocity
-        self._plot_trajectory(trajectory, initial_velocity, gravity)
-        self._report(trajectory, initial_velocity, gravity)
+        self._animation_path = scenario.plot(self.axis, trajectory, setup, values)
+        self.info.set(self._build_report(scenario, trajectory, setup, values))
 
-    def _plot_trajectory(
+    def _build_report(
         self,
+        scenario: Scenario,
         trajectory: Trajectory,
-        initial_velocity: tuple[float, float],
-        gravity: float,
-    ) -> None:
-        self.axis.clear()
-        self.axis.plot(trajectory.x, trajectory.y, "o-", markersize=3, label="Numerical (Euler)")
-        reference = analytical_position(
-            trajectory.time, (0.0, 0.0), initial_velocity, (0.0, -gravity)
+        setup: SimulationSetup,
+        values: dict[str, float],
+    ) -> str:
+        final_state = State(
+            float(trajectory.time[-1]),
+            trajectory.position[-1],
+            trajectory.velocity[-1],
         )
-        self.axis.plot(reference[:, 0], reference[:, 1], "k--", label="Analytical")
-        self.axis.set_xlabel("x [m]")
-        self.axis.set_ylabel("y [m]")
-        self.axis.set_title("Projectile trajectory")
-        self.axis.grid(True, alpha=0.3)
-        self.axis.legend()
-        self.canvas.draw_idle()
+        lines = [
+            f"Samples: {len(trajectory)}   Simulated time: {float(trajectory.time[-1]):.2f} s",
+            f"Final position: ({float(trajectory.x[-1]):.2f}, {float(trajectory.y[-1]):.2f}) m",
+            f"Final velocity: ({float(trajectory.vx[-1]):.2f}, {float(trajectory.vy[-1]):.2f}) m/s",
+        ]
+        if setup.extra_info:
+            lines.append(setup.extra_info.rstrip("\n"))
+        scenario_lines = scenario.report(trajectory, setup, values)
+        if scenario_lines:
+            lines.append(scenario_lines)
+        lines.append("Forces at final state (engine):")
+        for label, force in setup.system.force_contributions(final_state):
+            lines.append(f"  {label}: ({force[0]:.2f}, {force[1]:.2f}) N")
+        applied = setup.system.net_force(final_state)
+        if setup.contact is not None:
+            try:
+                reaction = setup.contact.reaction(
+                    setup.system.particle, final_state, applied
+                )
+            except ValueError:
+                lines.append("  contact: n/a")
+            else:
+                lines.append(
+                    f"  contact (normal+friction): ({reaction[0]:.2f}, {reaction[1]:.2f}) N"
+                )
+                applied = applied + reaction
+        lines.append(f"  net force: ({applied[0]:.2f}, {applied[1]:.2f}) N")
+        acceleration = applied / setup.system.particle.mass
+        lines.append(f"  acceleration: ({acceleration[0]:.2f}, {acceleration[1]:.2f}) m/s^2")
+        return "\n".join(lines)
 
-    def _report(
-        self,
-        trajectory: Trajectory,
-        initial_velocity: tuple[float, float],
-        gravity: float,
-    ) -> None:
-        reference = analytical_position(
-            trajectory.time, (0.0, 0.0), initial_velocity, (0.0, -gravity)
-        )
-        max_error = float(np.max(np.abs(trajectory.position - reference)))
-        self.info.set(
-            f"Samples: {len(trajectory)}\n"
-            f"Max height: {float(np.max(trajectory.y)):.2f} m\n"
-            f"End position x: {float(trajectory.x[-1]):.2f} m\n"
-            f"Simulated time: {float(trajectory.time[-1]):.2f} s\n"
-            f"Max error vs analytical: {max_error:.4f} m"
-        )
-
-    def animate_flight(self) -> None:
+    def animate_motion(self) -> None:
         """Replay the recorded trajectory as a moving point (no new physics)."""
-        if self.trajectory is None:
+        if self.trajectory is None or self._animation_path is None:
             if not self.interactive:
                 raise RuntimeError("no simulation result to animate")
             messagebox.showinfo("No result", "Run a simulation first.")
             return
         self._stop_animation()
-        trajectory = self.trajectory
+        path_x, path_y = self._animation_path
         (point,) = self.axis.plot([], [], "ro", markersize=6)
-        if len(trajectory.time) > 1:
-            step_ms = float(trajectory.time[1] - trajectory.time[0])
+        if len(self.trajectory.time) > 1:
+            step_ms = float(self.trajectory.time[1] - self.trajectory.time[0])
         else:
             step_ms = 0.01
         interval_ms = max(1, int(round(1000.0 * step_ms)))
 
         def update(frame: int) -> None:
-            point.set_data([trajectory.x[frame]], [trajectory.y[frame]])
+            point.set_data([path_x[frame]], [path_y[frame]])
 
         self.animation = FuncAnimation(
             self.figure,
             update,
-            frames=len(trajectory.time),
+            frames=len(self.trajectory.time),
             interval=interval_ms,
             blit=False,
             repeat=False,
@@ -230,7 +588,7 @@ class ProjectileLab:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="QuasarLab projectile lab (graphical)")
+    parser = argparse.ArgumentParser(description="QuasarLab physics lab (graphical)")
     parser.add_argument(
         "--selftest",
         action="store_true",
@@ -242,7 +600,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     root = tk.Tk()
-    lab = ProjectileLab(root, interactive=not args.selftest)
+    lab = PhysicsLab(root, interactive=not args.selftest)
     if args.selftest:
         lab.run_simulation()
         root.after(SELFTEST_MILLISECONDS, root.destroy)
