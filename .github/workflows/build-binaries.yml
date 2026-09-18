@@ -20,12 +20,19 @@ jobs:
           - os: windows-latest
             artifact: QuasarLab-windows-x64.exe
             binary: QuasarLab.exe
+            pyi_args: --windowed
           - os: ubuntu-latest
             artifact: QuasarLab-linux-x64
             binary: QuasarLab
+            # No --windowed on Linux: it only detaches stdio there, which
+            # swallows every traceback and makes failures undiagnosable.
+            # A frozen GUI app does not need it; console mode keeps the
+            # smoke test self-diagnosing.
+            pyi_args: ""
           - os: macos-latest
             artifact: QuasarLab-macos-arm64
             binary: QuasarLab
+            pyi_args: --windowed
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,7 +56,7 @@ jobs:
         run: xvfb-run -a python quasarlab_gui.py --selftest
       - name: Build one-file executable
         run: >
-          python -m PyInstaller --onefile --windowed --collect-all sv_ttk
+          python -m PyInstaller --onefile ${{ matrix.pyi_args }} --collect-all sv_ttk
           --name QuasarLab quasarlab_gui.py
       - name: Smoke-test the executable (Windows)
         if: runner.os == 'Windows'
@@ -61,29 +68,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           # setup-python exports LD_LIBRARY_PATH pointing at the build
-          # interpreter's lib dir; the frozen bootloader prepends its own
-          # extraction dir and the mix resolves wrong shared libraries,
-          # crashing the exe before main() runs (windowed mode hides why).
+          # interpreter's lib dir; mixed with the frozen bootloader's own
+          # extraction dir it can resolve the wrong shared libraries.
           unset LD_LIBRARY_PATH
-          xvfb-run -a ./dist/QuasarLab --selftest > smoke-stdout.log 2> smoke-stderr.log || code=$?
-          if [ "${code:-0}" -ne 0 ]; then
-            {
-              echo "Exe selftest exited with ${code:-1}."
-              echo '### smoke-stdout.log'
-              echo '```'
-              cat smoke-stdout.log || true
-              echo '```'
-              echo '### smoke-stderr.log'
-              echo '```'
-              cat smoke-stderr.log || true
-              echo '```'
-              echo '### selftest-error.log'
-              echo '```'
-              cat selftest-error.log || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit "${code:-1}"
-          fi
+          xvfb-run -a ./dist/QuasarLab --selftest
       - name: Rename executable for the platform
         shell: bash
         run: cp "dist/${{ matrix.binary }}" "dist/${{ matrix.artifact }}"
