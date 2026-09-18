@@ -10,6 +10,9 @@ and references computed by the engine's own analytical functions.
 from __future__ import annotations
 
 import argparse
+import base64
+import ctypes
+import io
 import math
 import sys
 import tkinter as tk
@@ -17,9 +20,12 @@ from dataclasses import dataclass
 from tkinter import messagebox, ttk
 
 import numpy as np
+import sv_ttk
+from matplotlib import style as mpl_style
 from matplotlib.animation import FuncAnimation
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
+from matplotlib.patches import Circle
 
 from quasarlab import (
     ConstantForce,
@@ -44,6 +50,46 @@ MAX_STEPS = 200_000
 SELFTEST_MILLISECONDS = 1500
 LIVE_UPDATE_DELAY_MS = 300
 DEFAULT_DURATION_S = 3.0
+MPL_DARK_STYLE = "seaborn-v0_8-darkgrid"
+MPL_LIGHT_STYLE = "seaborn-v0_8-whitegrid"
+
+
+def _enable_dpi_awareness() -> None:
+    """Request DPI awareness so Windows renders the UI sharply on scaled displays.
+
+    Best effort only: falls back to the legacy user32 call and never raises,
+    so behavior on other platforms is unchanged.
+    """
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except (AttributeError, OSError):
+                pass
+
+
+def _application_icon_png() -> bytes:
+    """Render the QuasarLab application icon (a stylized Q) as PNG bytes."""
+    figure = Figure(figsize=(1, 1), dpi=64)
+    axis = figure.add_axes((0.0, 0.0, 1.0, 1.0))
+    axis.set_axis_off()
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.add_patch(
+        Circle((0.5, 0.58), 0.28, fill=False, edgecolor="#4C9AFF", linewidth=7.0)
+    )
+    axis.plot(
+        [0.60, 0.82],
+        [0.30, 0.10],
+        color="#4C9AFF",
+        linewidth=7.0,
+        solid_capstyle="round",
+    )
+    buffer = io.BytesIO()
+    figure.savefig(buffer, format="png", transparent=True)
+    return buffer.getvalue()
 
 
 @dataclass(frozen=True)
@@ -381,12 +427,55 @@ class PhysicsLab:
         self._animation_path: tuple[np.ndarray, np.ndarray] | None = None
         self._refresh_job: str | None = None
         self._variables: dict[str, tk.StringVar] = {}
+        self._dark_mode = True
+        self._icon: tk.PhotoImage | None = None
         root.title("QuasarLab - Physics Lab")
-        root.minsize(880, 540)
+        self._apply_theme()
+        self._apply_icon()
+        root.minsize(1000, 620)
         root.columnconfigure(1, weight=1)
         root.rowconfigure(0, weight=1)
         self._build_controls()
         self._build_plot()
+
+    def _apply_theme(self) -> None:
+        """Apply the ttk theme, base font, and matching matplotlib style."""
+        try:
+            sv_ttk.set_theme("dark" if self._dark_mode else "light")
+        except tk.TclError:
+            pass
+        mpl_style.use(MPL_DARK_STYLE if self._dark_mode else MPL_LIGHT_STYLE)
+        style = ttk.Style()
+        default_font = ("Segoe UI", 10) if sys.platform == "win32" else ("Helvetica", 11)
+        style.configure(".", font=default_font)
+
+    def _apply_icon(self) -> None:
+        """Set the window icon; a missing icon must never block startup."""
+        try:
+            self._icon = tk.PhotoImage(data=base64.b64encode(_application_icon_png()))
+            self.root.iconphoto(True, self._icon)
+        except tk.TclError:
+            self._icon = None
+
+    def _toggle_theme(self) -> None:
+        """Switch light/dark and restyle both the widgets and the plot."""
+        self._dark_mode = not self._dark_mode
+        self._stop_animation()
+        self._apply_theme()
+        self._style_results_text()
+        self._rebuild_plot()
+        self._compute_and_show(show_errors=False)
+
+    def _style_results_text(self) -> None:
+        """Match the read-only results panel colors to the active ttk theme."""
+        style = ttk.Style()
+        background = style.lookup("TFrame", "background") or "#1c1c1c"
+        foreground = style.lookup("TLabel", "foreground") or "#fafafa"
+        self._results_text.configure(
+            background=background,
+            foreground=foreground,
+            insertbackground=foreground,
+        )
 
     def _current_scenario(self) -> Scenario:
         for scenario in SCENARIOS:
@@ -395,11 +484,14 @@ class PhysicsLab:
         return SCENARIOS[0]
 
     def _build_controls(self) -> None:
-        panel = ttk.Frame(self.root, padding=10)
+        panel = ttk.Frame(self.root, padding=16)
         panel.grid(row=0, column=0, sticky="ns")
+
+        scenario_frame = ttk.LabelFrame(panel, text="Scenario", padding=10)
+        scenario_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         self._scenario_selector = tk.StringVar(value=SCENARIOS[0].name)
         selector = ttk.Combobox(
-            panel,
+            scenario_frame,
             textvariable=self._scenario_selector,
             values=[scenario.name for scenario in SCENARIOS],
             state="readonly",
@@ -407,23 +499,55 @@ class PhysicsLab:
         )
         selector.grid(row=0, column=0, sticky="ew")
         selector.bind("<<ComboboxSelected>>", self._on_scenario_changed)
+        ttk.Checkbutton(
+            scenario_frame,
+            text="Light mode",
+            command=self._toggle_theme,
+            style="Switch.TCheckbutton",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        self._parameter_frame = ttk.Frame(panel)
-        self._parameter_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        parameters_frame = ttk.LabelFrame(panel, text="Parameters", padding=10)
+        parameters_frame.grid(row=1, column=0, sticky="nsew", pady=6)
+        self._parameter_frame = ttk.Frame(parameters_frame)
+        self._parameter_frame.grid(row=0, column=0, sticky="nsew")
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(1, weight=1)
 
-        ttk.Button(panel, text="Run simulation", command=self.run_simulation).grid(
-            row=2, column=0, sticky="ew", pady=(8, 4)
+        results_frame = ttk.LabelFrame(panel, text="Results", padding=10)
+        results_frame.grid(row=2, column=0, sticky="nsew", pady=(6, 0))
+        ttk.Button(results_frame, text="Run simulation", command=self.run_simulation).grid(
+            row=0, column=0, sticky="ew", pady=6
         )
-        ttk.Button(panel, text="Animate motion", command=self.animate_motion).grid(
-            row=3, column=0, sticky="ew", pady=4
+        ttk.Button(results_frame, text="Animate motion", command=self.animate_motion).grid(
+            row=1, column=0, sticky="ew", pady=6
         )
-        self.info = tk.StringVar(value="Edit any value - the plot updates automatically.")
-        ttk.Label(panel, textvariable=self.info, wraplength=260, justify="left").grid(
-            row=4, column=0, sticky="nw", pady=(8, 0)
+        self._results_text = tk.Text(
+            results_frame,
+            height=14,
+            width=34,
+            wrap="word",
+            state="disabled",
+            relief="flat",
         )
+        scrollbar = ttk.Scrollbar(
+            results_frame, orient="vertical", command=self._results_text.yview
+        )
+        self._results_text.configure(yscrollcommand=scrollbar.set)
+        self._results_text.grid(row=2, column=0, sticky="nsew", pady=(6, 0))
+        scrollbar.grid(row=2, column=1, sticky="ns", pady=(6, 0))
+        results_frame.columnconfigure(0, weight=1)
+        results_frame.rowconfigure(2, weight=1)
+        self._style_results_text()
+
+        self._set_results("Edit any value - the plot updates automatically.")
         self._rebuild_parameter_panel()
+
+    def _set_results(self, text: str) -> None:
+        """Render a report into the read-only results panel."""
+        self._results_text.configure(state="normal")
+        self._results_text.delete("1.0", "end")
+        self._results_text.insert("1.0", text)
+        self._results_text.configure(state="disabled")
 
     def _rebuild_parameter_panel(self) -> None:
         for child in self._parameter_frame.winfo_children():
@@ -433,25 +557,31 @@ class PhysicsLab:
         for row, field in enumerate(scenario.fields):
             variable = tk.StringVar(value=field.default)
             ttk.Label(self._parameter_frame, text=field.label).grid(
-                row=row, column=0, sticky="w", pady=1
+                row=row, column=0, sticky="w", padx=(0, 8), pady=6
             )
             ttk.Entry(self._parameter_frame, textvariable=variable, width=12).grid(
-                row=row, column=1, sticky="e", pady=1
+                row=row, column=1, sticky="e", pady=6
             )
             self._variables[field.key] = variable
             variable.trace_add("write", self._on_parameter_changed)
         self._request_refresh()
 
     def _build_plot(self) -> None:
-        frame = ttk.Frame(self.root)
-        frame.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
-        self.figure = Figure(figsize=(6.4, 4.8), dpi=100)
+        self._plot_frame = ttk.Frame(self.root)
+        self._plot_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
+        mpl_style.use(MPL_DARK_STYLE if self._dark_mode else MPL_LIGHT_STYLE)
+        self.figure = Figure(figsize=(7.2, 5.4), dpi=120)
         self.axis = self.figure.add_subplot(111)
         self.axis.grid(True, alpha=0.3)
-        self.canvas = FigureCanvasTkAgg(self.figure, master=frame)
-        self.toolbar = NavigationToolbar2Tk(self.canvas, frame, pack_toolbar=False)
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self._plot_frame)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self._plot_frame, pack_toolbar=False)
         self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    def _rebuild_plot(self) -> None:
+        """Recreate the plot area so a theme change restyles the whole figure."""
+        self._plot_frame.destroy()
+        self._build_plot()
 
     def run_simulation(self) -> None:
         """Read the form, run the deterministic engine, and display the result."""
@@ -485,7 +615,7 @@ class PhysicsLab:
             if show_errors:
                 messagebox.showerror("Invalid input", str(exc))
             else:
-                self.info.set(f"Waiting for valid input: {exc}")
+                self._set_results(f"Waiting for valid input: {exc}")
             return
 
         try:
@@ -501,13 +631,17 @@ class PhysicsLab:
             if show_errors:
                 messagebox.showerror("Simulation error", str(exc))
             else:
-                self.info.set(f"Cannot simulate: {exc}")
+                self._set_results(f"Cannot simulate: {exc}")
             return
 
         self._stop_animation()
         self.trajectory = trajectory
+        # Clear the axes so repeated runs never accumulate plot artists or
+        # duplicate legend entries; plotting.py stays reusable by examples.
+        self.axis.clear()
+        self.axis.grid(True, alpha=0.3)
         self._animation_path = scenario.plot(self.axis, trajectory, setup, values)
-        self.info.set(self._build_report(scenario, trajectory, setup, values))
+        self._set_results(self._build_report(scenario, trajectory, setup, values))
 
     def _build_report(
         self,
@@ -598,6 +732,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    _enable_dpi_awareness()
     args = parse_args()
     root = tk.Tk()
     lab = PhysicsLab(root, interactive=not args.selftest)

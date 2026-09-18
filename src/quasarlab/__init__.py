@@ -33,7 +33,7 @@ from quasarlab.physics.particle import Particle
 from quasarlab.physics.systems import ParticleSystem
 from quasarlab.simulation.world import Trajectory, World
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     "ConstantForce",

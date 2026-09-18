@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.2] — GUI overhaul: presentation and readability
+
+### Added
+
+- DPI awareness on Windows (per-monitor via `shcore` with a legacy fallback),
+  so text and toolbar icons render sharply on scaled displays.
+- `sv-ttk` dark theme with a light-mode switch; toggling restyles the
+  widgets and the matplotlib plot together without requiring a manual
+  re-run. Theme application is failure-tolerant so the GUI can never fail
+  to launch over styling.
+- Application window icon (generated, embedded) replacing the default Tk
+  feather.
+
+### Changed
+
+- Control panel regrouped into Scenario / Parameters / Results label
+  frames with wider padding; the results readout is now a scrollable,
+  read-only text panel instead of a single wrapped label.
+- Larger, higher-density figure (7.2 x 5.4 at 120 dpi) with modern
+  matplotlib styling; analytical references are drawn as clearly secondary
+  dashed lines; legend rendered explicitly (`loc="best"`, framed).
+- `sv-ttk>=2.6` added as a runtime dependency.
+
+### Fixed
+
+- Repeated runs and scenario switches no longer accumulate plot artists
+  and duplicate legend entries: the GUI now clears the axes before each
+  render. `plot_trajectory`/`plot_component_vs_time` signatures and the
+  standalone examples are unchanged.
+
 ## [0.2.1] — Engine hardening: immutability and contact abstraction
 
 ### Added

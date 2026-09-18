@@ -43,19 +43,35 @@ def plot_trajectory(
         while not isinstance(parent, Figure):
             parent = parent.figure
         fig = parent
-    target.plot(trajectory.x, trajectory.y, "o-", markersize=3, label="Numerical (Euler)")
+    target.plot(
+        trajectory.x,
+        trajectory.y,
+        marker="o",
+        markersize=3,
+        linewidth=1.6,
+        color="#4C9AFF",
+        label="Numerical (Euler)",
+    )
     if analytical_positions is not None:
         analytical = np.asarray(analytical_positions, dtype=float)
         if analytical.ndim != 2 or analytical.shape[1] != 2:
             raise ValueError(
                 f"analytical_positions must have shape (N, 2), got {analytical.shape}"
             )
-        target.plot(analytical[:, 0], analytical[:, 1], "k--", label="Analytical")
+        target.plot(
+            analytical[:, 0],
+            analytical[:, 1],
+            linestyle="--",
+            linewidth=1.4,
+            color="#666666",
+            alpha=0.85,
+            label="Analytical",
+        )
     target.set_xlabel("x [m]")
     target.set_ylabel("y [m]")
     target.set_title(title)
     target.grid(True, alpha=0.3)
-    target.legend()
+    target.legend(loc="best", frameon=True, fontsize=9)
 
     if save_path is not None:
         path = Path(save_path)
@@ -100,18 +116,34 @@ def plot_component_vs_time(
         while not isinstance(parent, Figure):
             parent = parent.figure
         fig = parent
-    target.plot(trajectory.time, values, "o-", markersize=3, label="Numerical (Euler)")
+    target.plot(
+        trajectory.time,
+        values,
+        marker="o",
+        markersize=3,
+        linewidth=1.6,
+        color="#4C9AFF",
+        label="Numerical (Euler)",
+    )
     if reference_times is not None and reference_values is not None:
         times = np.asarray(reference_times, dtype=float)
         reference = np.asarray(reference_values, dtype=float)
         if times.shape != reference.shape or times.ndim != 1:
             raise ValueError("reference_times and reference_values must be 1-D and matching")
-        target.plot(times, reference, "k--", label="Analytical")
+        target.plot(
+            times,
+            reference,
+            linestyle="--",
+            linewidth=1.4,
+            color="#666666",
+            alpha=0.85,
+            label="Analytical",
+        )
     target.set_xlabel("t [s]")
     target.set_ylabel(ylabel)
     target.set_title(title)
     target.grid(True, alpha=0.3)
-    target.legend()
+    target.legend(loc="best", frameon=True, fontsize=9)
 
     if save_path is not None:
         path = Path(save_path)
