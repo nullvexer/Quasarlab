@@ -4,7 +4,7 @@ QuasarLab is a deterministic computational physics laboratory. Its physics
 engine is the source of truth: results are produced by explicit computation,
 not by heuristics or generated guesses.
 
-This repository contains **Version 0.2.0**: a 2D particle driven by a
+This repository contains **Version 0.2.1**: a 2D particle driven by a
 composable set of force laws — uniform gravity, constant applied forces,
 linear drag, quadratic drag, and Coulomb friction on plane surfaces —
 integrated with explicit Euler at a fixed timestep and validated against
@@ -30,7 +30,10 @@ exact analytical solutions wherever trustworthy closed forms exist.
 - Matplotlib trajectory and component-vs-time visualization
 - Tkinter graphical interface (`quasarlab_gui.py`) with five scenarios
 - GitHub Actions CI and a Windows `.exe` build/smoke-test workflow
-- Strict rejection of invalid physical and numerical input
+- Strict rejection of invalid physical and numerical input (booleans, blank
+  labels, and non-finite values included)
+- Immutable engine objects: force laws, surfaces, states, and trajectories
+  are frozen dataclasses handing out write-protected arrays
 
 ## Physics implemented
 
@@ -161,7 +164,7 @@ This installs NumPy and Matplotlib, plus pytest for the test suite.
 python -m pytest
 ```
 
-The 0.2.0 suite contains 165 tests and passes. Ruff and strict mypy are also
+The 0.2.1 suite contains 184 tests and passes. Ruff and strict mypy are also
 clean (`ruff check .`, `mypy src/quasarlab`).
 
 ## Examples

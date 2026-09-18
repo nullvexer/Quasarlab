@@ -16,6 +16,7 @@ from quasarlab.physics.analytical import (
 )
 from quasarlab.physics.contact import (
     ContactModel,
+    CoulombFriction,
     PlaneSurface,
     horizontal_surface,
     inclined_surface,
@@ -32,11 +33,12 @@ from quasarlab.physics.particle import Particle
 from quasarlab.physics.systems import ParticleSystem
 from quasarlab.simulation.world import Trajectory, World
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "ConstantForce",
     "ContactModel",
+    "CoulombFriction",
     "ForceLaw",
     "LinearDrag",
     "Particle",

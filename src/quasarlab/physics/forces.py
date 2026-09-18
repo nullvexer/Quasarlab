@@ -10,6 +10,10 @@ numerical layer owns integration and the systems layer owns composition
 
 All laws carry a ``label`` so the force breakdown can report individual
 contributions (free-body transparency).
+
+Every built-in law is a frozen dataclass whose vector fields are
+write-protected: a force law is an immutable description of a physical law
+and cannot be mutated into invalid physics after construction.
 """
 
 from __future__ import annotations
@@ -49,7 +53,7 @@ def gravitational_force(mass: float, gravity: NDArray[np.float64]) -> NDArray[np
     return mass * gravity
 
 
-@dataclass
+@dataclass(frozen=True)
 class UniformGravity:
     """A uniform gravitational field.
 
@@ -63,8 +67,8 @@ class UniformGravity:
     label: str = "uniform gravity"
 
     def __post_init__(self) -> None:
-        self.g = as_vector(self.g, "g")
-        self.label = as_label(self.label, "label")
+        object.__setattr__(self, "g", as_vector(self.g, "g"))
+        object.__setattr__(self, "label", as_label(self.label, "label"))
 
     def force(self, particle: Particle, state: State) -> NDArray[np.float64]:
         """Return the force on ``particle`` in newtons.
@@ -79,7 +83,7 @@ class UniformGravity:
         return self.g.copy()
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConstantForce:
     """A force of constant magnitude and direction.
 
@@ -92,15 +96,15 @@ class ConstantForce:
     label: str = "applied force"
 
     def __post_init__(self) -> None:
-        self.force_value = as_vector(self.force_value, "force")
-        self.label = as_label(self.label, "label")
+        object.__setattr__(self, "force_value", as_vector(self.force_value, "force"))
+        object.__setattr__(self, "label", as_label(self.label, "label"))
 
     def force(self, particle: Particle, state: State) -> NDArray[np.float64]:
         """Return the constant force vector in newtons."""
         return self.force_value.copy()
 
 
-@dataclass
+@dataclass(frozen=True)
 class LinearDrag:
     """Linear (viscous) drag: F_d = -b v, with b >= 0 in N per (m/s).
 
@@ -116,15 +120,15 @@ class LinearDrag:
     label: str = "linear drag"
 
     def __post_init__(self) -> None:
-        self.b = as_nonnegative_float(self.b, "b")
-        self.label = as_label(self.label, "label")
+        object.__setattr__(self, "b", as_nonnegative_float(self.b, "b"))
+        object.__setattr__(self, "label", as_label(self.label, "label"))
 
     def force(self, particle: Particle, state: State) -> NDArray[np.float64]:
         """Return ``-b v`` in newtons; zero vector at zero velocity."""
         return -self.b * state.velocity
 
 
-@dataclass
+@dataclass(frozen=True)
 class QuadraticDrag:
     """Quadratic drag: F_d = -(1/2) rho C_d A |v| v.
 
@@ -145,10 +149,14 @@ class QuadraticDrag:
     label: str = "quadratic drag"
 
     def __post_init__(self) -> None:
-        self.density = as_nonnegative_float(self.density, "density")
-        self.drag_coefficient = as_nonnegative_float(self.drag_coefficient, "drag_coefficient")
-        self.area = as_nonnegative_float(self.area, "area")
-        self.label = as_label(self.label, "label")
+        object.__setattr__(self, "density", as_nonnegative_float(self.density, "density"))
+        object.__setattr__(
+            self,
+            "drag_coefficient",
+            as_nonnegative_float(self.drag_coefficient, "drag_coefficient"),
+        )
+        object.__setattr__(self, "area", as_nonnegative_float(self.area, "area"))
+        object.__setattr__(self, "label", as_label(self.label, "label"))
 
     @property
     def drag_factor(self) -> float:

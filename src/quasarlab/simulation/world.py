@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from quasarlab._validation import as_nonnegative_float, as_positive_float
 from quasarlab.numerical.integrators import euler_step
 from quasarlab.numerical.state import State
-from quasarlab.physics.contact import ContactModel, PlaneSurface
+from quasarlab.physics.contact import ContactModel
 from quasarlab.physics.systems import ForceEvaluation, ParticleSystem
 
 
@@ -120,13 +120,9 @@ class World:
         for _, force in contributions:
             total += force
         if self.contact is not None:
-            if isinstance(self.contact, PlaneSurface):
-                contact_forces = self.contact.force_contributions(
-                    self.system.particle, state, total
-                )
-            else:
-                reaction = self.contact.reaction(self.system.particle, state, total)
-                contact_forces = (("contact", reaction),)
+            contact_forces = self.contact.force_contributions(
+                self.system.particle, state, total
+            )
             contributions += contact_forces
             for _, force in contact_forces:
                 total += force

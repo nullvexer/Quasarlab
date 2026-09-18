@@ -5,6 +5,30 @@ from quasarlab.numerical.integrators import euler_step
 from quasarlab.numerical.state import State
 
 
+@pytest.mark.parametrize("attribute", ["position", "velocity"])
+def test_state_arrays_cannot_be_modified_or_made_writeable(attribute):
+    state = State(0.0, (1.0, 2.0), (3.0, 4.0))
+    array = getattr(state, attribute)
+    original = array.copy()
+    with pytest.raises(ValueError):
+        array[0] = 99.0
+    with pytest.raises(ValueError):
+        array.setflags(write=True)
+    np.testing.assert_array_equal(array, original)
+
+
+@pytest.mark.parametrize("value", [True, False, np.bool_(True)])
+def test_state_rejects_boolean_time(value):
+    with pytest.raises((TypeError, ValueError)):
+        State(value, (0.0, 0.0), (0.0, 0.0))
+
+
+@pytest.mark.parametrize("vector", [(True, 2.0), [1.0, False], np.array([True, False])])
+def test_state_rejects_boolean_vector_components(vector):
+    with pytest.raises((TypeError, ValueError)):
+        State(0.0, vector, (0.0, 0.0))
+
+
 def test_state_stores_time_position_and_velocity():
     state = State(0.5, (1.0, 2.0), (3.0, -4.0))
     assert state.time == 0.5

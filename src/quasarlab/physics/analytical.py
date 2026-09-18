@@ -121,20 +121,47 @@ def quadratic_drag_fall_speed(
     return v_terminal * np.tanh(g * t_array / v_terminal)
 
 
+def _log_cosh(x: float) -> float:
+    """Evaluate ``ln(cosh(x))`` accurately for both small and large ``x``.
+
+    Two exact identities, chosen by the size of ``x``:
+
+    * small ``|x|``: ``ln(cosh x) = -ln(1 - tanh^2(x)) / 2``.  The direct
+      ``ln(cosh(x))`` form loses the short-time ballistic limit
+      ``d ~ g t^2 / 2`` to cancellation once ``ln(cosh x)`` underflows
+      relative to its own rounding; the ``tanh`` identity keeps it.
+    * large ``|x|``: ``ln(cosh x) = logaddexp(x, -x) - ln 2``.  The ``tanh``
+      identity loses precision instead once ``tanh^2(x)`` rounds to 1.
+    """
+    if abs(x) < 1.0:
+        return -0.5 * math.log1p(-math.tanh(x) ** 2)
+    return float(np.logaddexp(x, -x)) - math.log(2.0)
+
+
 def quadratic_drag_fall_distance(
     t: object, v_terminal: float, g: float
 ) -> float | NDArray[np.float64]:
     """Return the exact fallen distance for a fall from rest with quadratic drag.
 
     ``d(t) = (v_terminal^2 / g) ln(cosh(g t / v_terminal))`` — the integral of
-    :func:`quadratic_drag_fall_speed`.
+    :func:`quadratic_drag_fall_speed`.  The logarithm is evaluated by
+    :func:`_log_cosh`, which stays accurate for both very short and very long
+    falls.
     """
     t_array = _time_array(t)
     v_terminal = as_positive_float(v_terminal, "v_terminal")
     g = as_positive_float(g, "g")
-    argument = g * t_array / v_terminal
-    log_cosh = np.logaddexp(argument, -argument) - math.log(2.0)
-    distance = (v_terminal**2 / g) * log_cosh
+    scale = v_terminal**2 / g
     if t_array.ndim == 0:
-        return float(distance)
-    return np.asarray(distance, dtype=float)
+        x = g * float(t_array) / v_terminal
+        return scale * _log_cosh(x)
+    x_array = g * t_array / v_terminal
+    small = np.abs(x_array) < 1.0
+    tanh_argument = np.where(small, x_array, 0.0)
+    large_argument = np.where(small, 0.0, x_array)
+    log_cosh = np.where(
+        small,
+        -0.5 * np.log1p(-np.tanh(tanh_argument) ** 2),
+        np.logaddexp(large_argument, -large_argument) - math.log(2.0),
+    )
+    return np.asarray(scale * log_cosh, dtype=float)

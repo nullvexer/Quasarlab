@@ -45,7 +45,12 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import NDArray
 
-from quasarlab._validation import as_float, as_nonnegative_float, as_vector
+from quasarlab._validation import (
+    as_float,
+    as_nonnegative_float,
+    as_vector,
+    immutable_array,
+)
 from quasarlab.numerical.state import State
 from quasarlab.physics.particle import Particle
 
@@ -60,11 +65,18 @@ class ContactModel(Protocol):
     newtons, given the net *applied* (non-contact) force.  ``constrain``
     applies the discrete-time kinematic corrections the contact requires
     after an integrator step (see :meth:`PlaneSurface.constrain`).
+    ``force_contributions`` reports the same reaction split into labelled
+    parts so force breakdowns stay transparent without World knowing the
+    contact's internal geometry.
     """
 
     def reaction(
         self, particle: Particle, state: State, applied_force: NDArray[np.float64]
     ) -> NDArray[np.float64]: ...
+
+    def force_contributions(
+        self, particle: Particle, state: State, applied_force: NDArray[np.float64]
+    ) -> tuple[tuple[str, NDArray[np.float64]], ...]: ...
 
     def constrain(
         self,
@@ -105,7 +117,7 @@ class CoulombFriction:
         return -math.copysign(self.mu_k * normal_load, applied)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlaneSurface:
     """A fixed rigid plane with Coulomb friction.
 
@@ -114,6 +126,9 @@ class PlaneSurface:
     construction.  The unit tangent is ``(n_y, -n_x)`` — for a horizontal
     surface with the normal up, the tangent points along +x; for a surface
     inclined by ``theta`` above horizontal, the tangent points up-slope.
+
+    The surface is a frozen, write-protected description of the contact:
+    geometry and coefficients cannot be mutated into invalid physics.
     """
 
     point: NDArray[np.float64]
@@ -122,20 +137,24 @@ class PlaneSurface:
     mu_k: float
 
     def __post_init__(self) -> None:
-        self.point = as_vector(self.point, "point")
+        object.__setattr__(self, "point", as_vector(self.point, "point"))
         normal = as_vector(self.normal, "normal")
         norm = float(np.linalg.norm(normal))
         if norm == 0.0:
             raise ValueError("surface normal must be a nonzero vector")
-        self.mu_s = as_nonnegative_float(self.mu_s, "mu_s")
-        self.mu_k = as_nonnegative_float(self.mu_k, "mu_k")
+        object.__setattr__(self, "mu_s", as_nonnegative_float(self.mu_s, "mu_s"))
+        object.__setattr__(self, "mu_k", as_nonnegative_float(self.mu_k, "mu_k"))
         if self.mu_k > self.mu_s:
             raise ValueError(
                 f"kinetic friction coefficient ({self.mu_k!r}) must not exceed the"
                 f" static friction coefficient ({self.mu_s!r})"
             )
-        self.normal = normal / norm
-        self.tangent = np.array([self.normal[1], -self.normal[0]])
+        object.__setattr__(self, "normal", immutable_array(normal / norm))
+
+    @property
+    def tangent(self) -> NDArray[np.float64]:
+        """Return the unit tangent ``(n_y, -n_x)`` in the plane."""
+        return np.array([self.normal[1], -self.normal[0]])
 
     def reaction(
         self, particle: Particle, state: State, applied_force: NDArray[np.float64]

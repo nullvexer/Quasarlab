@@ -21,6 +21,8 @@ def as_float(value: object, name: str) -> float:
     or raise a clear error. The cast below tells the type checker what the
     surrounding try/except already enforces at runtime.
     """
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a real measurement, not a boolean")
     try:
         scalar = float(cast(Any, value))
     except (TypeError, ValueError) as exc:
@@ -48,13 +50,26 @@ def as_positive_float(value: object, name: str) -> float:
 
 def as_label(value: object, name: str) -> str:
     """Return ``value`` as a non-empty string label, or raise."""
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string, got {value!r}")
     return value
 
 
+def immutable_array(value: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Copy into immutable bytes-backed storage; writeability cannot be re-enabled."""
+    return np.frombuffer(value.tobytes(), dtype=np.float64).reshape(value.shape)
+
+
+def reject_booleans(value: object, name: str) -> None:
+    """Inspect before numeric coercion loses boolean component information."""
+    array = np.asarray(value, dtype=object)
+    if any(isinstance(item, (bool, np.bool_)) for item in array.flat):
+        raise TypeError(f"{name} must contain measurements, not booleans")
+
+
 def as_vector(value: object, name: str) -> NDArray[np.float64]:
     """Return ``value`` as an owned finite float64 vector of shape (2,)."""
+    reject_booleans(value, name)
     try:
         vector = np.asarray(value, dtype=float)
     except (TypeError, ValueError) as exc:
@@ -63,4 +78,4 @@ def as_vector(value: object, name: str) -> NDArray[np.float64]:
         raise ValueError(f"{name} must be a 2-component vector, got shape {vector.shape}")
     if not np.all(np.isfinite(vector)):
         raise ValueError(f"all components of {name} must be finite, got {vector!r}")
-    return vector.copy()
+    return immutable_array(vector)

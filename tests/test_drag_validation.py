@@ -173,6 +173,19 @@ class TestQuadraticDragValidation:
 
 
 class TestAnalyticalReferenceFunctions:
+    @pytest.mark.parametrize("time", [1e-10, np.array([0.0, 1e-10, 1e-8])])
+    def test_quadratic_distance_preserves_short_time_ballistic_limit(self, time):
+        distance = quadratic_drag_fall_distance(time, 10.0, 10.0)
+        expected = 5.0 * np.asarray(time) ** 2
+        np.testing.assert_allclose(distance, expected, rtol=1e-14, atol=0.0)
+
+    def test_quadratic_distance_handles_mixed_time_scales(self):
+        times = np.array([1e-10, 1.0, 1000.0])
+        expected = np.array([5e-20, 4.337808304830272, 10000.0 - 10.0 * np.log(2.0)])
+        with np.errstate(over="raise", invalid="raise"):
+            distance = quadratic_drag_fall_distance(times, 10.0, 10.0)
+        np.testing.assert_allclose(distance, expected, rtol=1e-14, atol=0.0)
+
     @pytest.mark.parametrize("time", [1000.0, np.array([1000.0, 2000.0])])
     def test_quadratic_distance_remains_finite_for_long_falls(self, time):
         distance = quadratic_drag_fall_distance(time, 10.0, 10.0)

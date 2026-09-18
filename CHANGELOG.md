@@ -2,6 +2,53 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1] — Engine hardening: immutability and contact abstraction
+
+### Added
+
+- `CoulombFriction`, a public friction law separated from contact mechanics:
+  it consumes a supplied normal load and returns the signed tangential Coulomb
+  force (kinetic branch when sliding, exact static branch at rest), so future
+  contact models can reuse the law without inheriting plane geometry.
+
+### Changed
+
+- Every built-in force law (`UniformGravity`, `ConstantForce`, `LinearDrag`,
+  `QuadraticDrag`) and `PlaneSurface` is now a frozen dataclass whose vector
+  fields are write-protected; laws and surfaces cannot be mutated into
+  invalid physics after construction.
+- `as_vector` returns write-protected arrays, and validation now rejects
+  booleans (scalar and vector components) and blank labels everywhere, so
+  `True` can no longer masquerade as a measurement.
+- `World` depends only on the generic `ContactModel` protocol: the protocol
+  gained `force_contributions`, and `evaluate_forces` no longer special-cases
+  `PlaneSurface`. Custom contact models now report labelled contributions on
+  equal footing with the built-in plane.
+
+### Validation
+
+- New contract tests (165 → 184 total) assert frozen dataclass status,
+  write-protected law/surface/state arrays, boolean and blank-label
+  rejection, and that `World.evaluate_forces` stays correct through the
+  generic protocol.
+- `quadratic_drag_fall_distance` now evaluates `ln(cosh x)` through two exact
+  identities chosen by argument size (`tanh`-based for short times,
+  `logaddexp`-based for long times); regression tests pin the ballistic
+  short-time limit `d ~ g t^2 / 2` with zero absolute tolerance and the
+  finite long-time limit, for scalar and mixed-array input.
+
+### Fixed
+
+- `quadratic_drag_fall_distance` lost the short-time ballistic limit to
+  floating-point cancellation (it returned exactly `0` for `t = 1e-10` where
+  the exact distance is `5e-20`); the size-dependent evaluation restores full
+  relative accuracy on both ends of the time range.
+
+### Limitations
+
+- Unchanged from 0.2.0: surface contact only (no free flight/impacts),
+  explicit Euler only, drag assumes a medium at rest.
+
 ## [0.2.0] — Force framework and realistic forces
 
 ### Added
