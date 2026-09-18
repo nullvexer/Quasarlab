@@ -16,6 +16,7 @@ import io
 import math
 import sys
 import tkinter as tk
+import traceback
 from dataclasses import dataclass
 from tkinter import messagebox, ttk
 
@@ -734,12 +735,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     _enable_dpi_awareness()
     args = parse_args()
-    root = tk.Tk()
-    lab = PhysicsLab(root, interactive=not args.selftest)
-    if args.selftest:
-        lab.run_simulation()
-        root.after(SELFTEST_MILLISECONDS, root.destroy)
-    root.mainloop()
+    try:
+        root = tk.Tk()
+        lab = PhysicsLab(root, interactive=not args.selftest)
+        if args.selftest:
+            lab.run_simulation()
+            root.after(SELFTEST_MILLISECONDS, root.destroy)
+        root.mainloop()
+    except BaseException:
+        # PyInstaller --windowed builds swallow tracebacks on Linux: any
+        # selftest crash would otherwise exit 1 with no output at all.  Write
+        # the traceback to a file the CI smoke-test step can print.
+        if args.selftest:
+            try:
+                with open("selftest-error.log", "w", encoding="utf-8") as stream:
+                    traceback.print_exc(file=stream)
+            except OSError:
+                pass
+        raise
     return 0
 
 
