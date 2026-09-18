@@ -41,6 +41,12 @@ jobs:
       - name: Check build-interpreter tkinter (Linux)
         if: runner.os == 'Linux'
         run: python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+      - name: Check virtual-display Tk (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -c "import tkinter; root = tkinter.Tk(); print('Tk', root.tk.call('info', 'patchlevel')); root.destroy()"
+      - name: Source-level smoke test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python quasarlab_gui.py --selftest
       - name: Build one-file executable
         run: >
           python -m PyInstaller --onefile --windowed --collect-all sv_ttk
@@ -54,10 +60,19 @@ jobs:
       - name: Smoke-test the executable (Linux, virtual display)
         if: runner.os == 'Linux'
         run: |
-          xvfb-run -a ./dist/QuasarLab --selftest || code=$?
+          xvfb-run -a ./dist/QuasarLab --selftest > smoke-stdout.log 2> smoke-stderr.log || code=$?
           if [ "${code:-0}" -ne 0 ]; then
-            echo "selftest exited with ${code}; selftest-error.log (if any):"
-            cat selftest-error.log || true
+            {
+              echo "Exe selftest exited with ${code:-1}."
+              echo '### smoke-stderr.log'
+              echo '```'
+              cat smoke-stderr.log || true
+              echo '```'
+              echo '### selftest-error.log'
+              echo '```'
+              cat selftest-error.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit "${code:-1}"
           fi
       - name: Rename executable for the platform
